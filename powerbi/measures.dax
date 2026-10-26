@@ -1,0 +1,177 @@
+// =============================================================================
+// Superstore · Power BI · Medidas DAX
+// Modelo: fact_sales + dim_date + dim_customer + dim_product + dim_geography
+// Todas las medidas viven en la tabla "_Medidas". dim_date está marcada como tabla de fechas.
+// Secciones: columnas calculadas · KPIs · inteligencia de tiempo · rentabilidad · participación ·
+// clientes · logística y devoluciones · interactividad.
+// =============================================================================
+
+// ---------------------------------------------------------------- COLUMNAS CALCULADAS
+// fact_sales
+Banda de Descuento =
+SWITCH ( TRUE (),
+    fact_sales[discount] = 0,   "0%",
+    fact_sales[discount] <= 0.2, "1-20%",
+    fact_sales[discount] <= 0.4, "21-40%",
+    "Más de 40%" )
+
+Banda de Descuento Orden =
+SWITCH ( TRUE (),
+    fact_sales[discount] = 0,   1,
+    fact_sales[discount] <= 0.2, 2,
+    fact_sales[discount] <= 0.4, 3,
+    4 )
+// "Banda de Descuento" se ordena por "Banda de Descuento Orden" en el modelo.
+
+// dim_customer
+Primera Compra =
+MINX ( RELATEDTABLE ( fact_sales ), RELATED ( dim_date[date] ) )
+
+// dim_date: [month_name] se ordena por [month].
+
+// ---------------------------------------------------------------- KPIs BASE
+Ventas = SUM ( fact_sales[sales] )
+Utilidad = SUM ( fact_sales[profit] )
+Margen % = DIVIDE ( [Utilidad], [Ventas] )
+Unidades = SUM ( fact_sales[quantity] )
+Pedidos = DISTINCTCOUNT ( fact_sales[order_id] )
+Clientes = DISTINCTCOUNT ( fact_sales[customer_key] )
+Ticket Promedio = DIVIDE ( [Ventas], [Pedidos] )
+Descuento Promedio = AVERAGE ( fact_sales[discount] )
+
+// ---------------------------------------------------------------- INTELIGENCIA DE TIEMPO
+Ventas AA =
+CALCULATE ( [Ventas], SAMEPERIODLASTYEAR ( dim_date[date] ) )
+
+Utilidad AA =
+CALCULATE ( [Utilidad], SAMEPERIODLASTYEAR ( dim_date[date] ) )
+
+Var Ventas YoY % = DIVIDE ( [Ventas] - [Ventas AA], [Ventas AA] )
+
+Var Utilidad YoY % = DIVIDE ( [Utilidad] - [Utilidad AA], ABS ( [Utilidad AA] ) )
+
+Ventas YTD = TOTALYTD ( [Ventas], dim_date[date] )
+
+Utilidad YTD = TOTALYTD ( [Utilidad], dim_date[date] )
+
+Ventas Mes Anterior =
+CALCULATE ( [Ventas], DATEADD ( dim_date[date], -1, MONTH ) )
+
+Var Ventas MoM % = DIVIDE ( [Ventas] - [Ventas Mes Anterior], [Ventas Mes Anterior] )
+
+// Promedio móvil de 3 meses: ventas de los últimos 3 meses / 3 (en gráfico mensual)
+Ventas Media Móvil 3M =
+VAR _fin = MAX ( dim_date[date] )
+VAR _inicio = EDATE ( _fin, -2 )
+VAR _primera = CALCULATE ( MIN ( dim_date[date] ), ALL ( dim_date ) )
+RETURN
+    IF (
+        _inicio >= DATE ( YEAR ( _primera ), MONTH ( _primera ), 1 ),
+        DIVIDE (
+            CALCULATE ( [Ventas], DATESINPERIOD ( dim_date[date], _fin, -3, MONTH ) ),
+            3
+        )
+    )
+
+// Ventas según fecha de envío (relación inactiva fact_sales[ship_date_key] -> dim_date[date_key])
+Ventas por Fecha de Envío =
+CALCULATE ( [Ventas], USERELATIONSHIP ( fact_sales[ship_date_key], dim_date[date_key] ) )
+
+// ---------------------------------------------------------------- RENTABILIDAD
+Líneas con Pérdida =
+CALCULATE ( COUNTROWS ( fact_sales ), fact_sales[profit] < 0 )
+
+% Líneas con Pérdida = DIVIDE ( [Líneas con Pérdida], COUNTROWS ( fact_sales ) )
+
+Pérdida Total =
+CALCULATE ( [Utilidad], fact_sales[profit] < 0 )
+
+// Cuánta utilidad se pierde por vender con descuento alto (más de 20%)
+Utilidad con Descuento Alto =
+CALCULATE ( [Utilidad], fact_sales[discount] > 0.2 )
+
+Margen Sin Descuento % =
+CALCULATE ( [Margen %], fact_sales[discount] = 0 )
+
+// ---------------------------------------------------------------- PARTICIPACIÓN Y RANKING
+% del Total =
+DIVIDE ( [Ventas], CALCULATE ( [Ventas], ALLSELECTED () ) )
+
+% de la Categoría =
+DIVIDE ( [Ventas], CALCULATE ( [Ventas], ALLEXCEPT ( dim_product, dim_product[category] ) ) )
+
+Ranking Subcategoría =
+RANKX ( ALLSELECTED ( dim_product[sub_category] ), [Ventas], , DESC, DENSE )
+
+Participación Top 10 Clientes =
+DIVIDE (
+    SUMX ( TOPN ( 10, VALUES ( fact_sales[customer_key] ), [Ventas] ), [Ventas] ),
+    [Ventas]
+)
+
+// ---------------------------------------------------------------- CLIENTES
+Clientes Nuevos =
+VAR _ini = MIN ( dim_date[date] )
+VAR _fin = MAX ( dim_date[date] )
+RETURN
+    CALCULATE (
+        DISTINCTCOUNT ( fact_sales[customer_key] ),
+        FILTER ( dim_customer, dim_customer[Primera Compra] >= _ini && dim_customer[Primera Compra] <= _fin )
+    )
+
+Clientes Recurrentes = [Clientes] - [Clientes Nuevos]
+
+% Clientes Recurrentes = DIVIDE ( [Clientes Recurrentes], [Clientes] )
+
+// ---------------------------------------------------------------- LOGÍSTICA Y DEVOLUCIONES
+Días de Envío Promedio = AVERAGE ( fact_sales[ship_days] )
+
+Pedidos Devueltos =
+CALCULATE ( DISTINCTCOUNT ( fact_sales[order_id] ), fact_sales[is_returned] = TRUE () )
+
+Tasa de Devolución % = DIVIDE ( [Pedidos Devueltos], [Pedidos] )
+
+Ventas Devueltas =
+CALCULATE ( [Ventas], fact_sales[is_returned] = TRUE () )
+
+// ---------------------------------------------------------------- INTERACTIVIDAD
+// Tabla desconectada (tabla calculada) que alimenta el selector de métrica:
+//    SelectorMétrica = DATATABLE ( "Métrica", STRING, "Orden", INTEGER,
+//                                  { { "Ventas", 1 }, { "Utilidad", 2 }, { "Margen %", 3 } } )
+// En DAX, los nombres de tabla con tilde van entre comillas simples.
+Métrica Seleccionada =
+SWITCH (
+    SELECTEDVALUE ( 'SelectorMétrica'[Orden], 1 ),
+    1, [Ventas],
+    2, [Utilidad],
+    3, [Margen %]
+)
+
+Título Dinámico =
+"Ventas y utilidad · "
+    & SELECTEDVALUE ( dim_date[year], "2015-2018" )
+    & IF ( ISFILTERED ( dim_geography[region] ),
+           " · Región " & SELECTEDVALUE ( dim_geography[region], "múltiple" ),
+           "" )
+
+// Color para el formato condicional del margen: coral si hay pérdida, ámbar si es bajo, verde si es sano
+Color Margen =
+SWITCH (
+    TRUE (),
+    [Margen %] < 0,     "#E8735A",
+    [Margen %] < 0.10,  "#E8A33D",
+    "#4DC3B0"
+)
+
+// ---------------------------------------------------------------- CLIENTES (recompra)
+// Proporción de clientes con más de un pedido, válida con cualquier filtro
+% Clientes con Recompra =
+DIVIDE (
+    COUNTROWS (
+        FILTER (
+            VALUES ( fact_sales[customer_key] ),
+            CALCULATE ( DISTINCTCOUNT ( fact_sales[order_id] ) ) > 1
+        )
+    ),
+    [Clientes]
+)

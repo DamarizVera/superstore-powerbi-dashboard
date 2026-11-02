@@ -1,6 +1,6 @@
 # Superstore · Dashboard de Ventas y Rentabilidad en Power BI
 
-Proyecto de inteligencia de negocios: datos crudos de retail → modelo en **estrella** limpio → **medidas DAX** → reporte de 4 páginas en Power BI centrado en *dónde el negocio gana y dónde pierde dinero*.
+Proyecto de inteligencia de negocios: datos crudos de retail → modelo en **estrella** limpio → **medidas DAX** → reporte de 5 páginas en Power BI centrado en *dónde el negocio gana y dónde pierde dinero*.
 
 🇬🇧 English version: [README.md](README.md)
 

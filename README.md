@@ -1,6 +1,6 @@
 # Superstore · Power BI Sales & Profitability Dashboard
 
-Business-intelligence project: raw retail data → cleaned **star-schema** model → **DAX measures** → a 4-page Power BI report focused on *where the business makes and loses money*.
+Business-intelligence project: raw retail data → cleaned **star-schema** model → **DAX measures** → a 5-page Power BI report focused on *where the business makes and loses money*.
 
 🇪🇸 Versión en español: [README.es.md](README.es.md)
 
